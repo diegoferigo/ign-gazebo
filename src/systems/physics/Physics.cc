@@ -47,7 +47,6 @@
 #include <ignition/physics/FreeGroup.hh>
 #include <ignition/physics/FixedJoint.hh>
 #include <ignition/physics/GetContacts.hh>
-#include <ignition/physics/GetEntities.hh>
 #include <ignition/physics/GetBoundingBox.hh>
 #include <ignition/physics/Joint.hh>
 #include <ignition/physics/Link.hh>
@@ -131,14 +130,9 @@ class ignition::gazebo::systems::PhysicsPrivate
           ignition::physics::LinkFrameSemantics,
           ignition::physics::AddLinkExternalForceTorque,
           ignition::physics::ForwardStep,
-          ignition::physics::GetEntities,
           ignition::physics::GetContactsFromLastStepFeature,
           ignition::physics::RemoveEntities,
-          ignition::physics::GetBasicJointProperties,
-          ignition::physics::GetBasicJointState,
-          ignition::physics::SetBasicJointState,
           ignition::physics::sdf::ConstructSdfCollision,
-          ignition::physics::sdf::ConstructSdfJoint,
           ignition::physics::sdf::ConstructSdfLink,
           ignition::physics::sdf::ConstructSdfModel,
           ignition::physics::sdf::ConstructSdfWorld
@@ -166,10 +160,6 @@ class ignition::gazebo::systems::PhysicsPrivate
 
   /// \brief Shape type with just the minimum features.
   public: using ShapePtrType = ignition::physics::ShapePtr<
-            ignition::physics::FeaturePolicy3d, MinimumFeatureList>;
-
-  /// \brief Joint type with just the minimum features.
-  public: using JointPtrType = ignition::physics::JointPtr<
             ignition::physics::FeaturePolicy3d, MinimumFeatureList>;
 
   /// \brief Free group type with just the minimum features.
@@ -231,10 +221,6 @@ class ignition::gazebo::systems::PhysicsPrivate
   /// in the ECM. This is the reverse map of entityCollisionMap.
   public: std::unordered_map<ShapePtrType, Entity> collisionEntityMap;
 
-  /// \brief A map between joint entity ids in the ECM to Joint Entities in
-  /// ign-physics
-  public: std::unordered_map<Entity, JointPtrType> entityJointMap;
-
   /// \brief A map between model entity ids in the ECM to whether its battery
   /// has drained.
   public: std::unordered_map<Entity, bool> entityOffMap;
@@ -276,11 +262,40 @@ class ignition::gazebo::systems::PhysicsPrivate
   public: std::string pluginPathEnv = "IGN_GAZEBO_PHYSICS_ENGINE_PATH";
 
   //////////////////////////////////////////////////
+  // Joints
+
+  /// \brief Feature list to handle joints.
+  public: using JointFeatureList = ignition::physics::FeatureList<
+            MinimumFeatureList,
+            ignition::physics::GetBasicJointProperties,
+            ignition::physics::GetBasicJointState,
+            ignition::physics::SetBasicJointState,
+            ignition::physics::sdf::ConstructSdfJoint>;
+
+  /// \brief Joint type with detachable joint features.
+  public: using JointPtrType = ignition::physics::JointPtr<
+            ignition::physics::FeaturePolicy3d, JointFeatureList>;
+
+  /// \brief Model type with detachable joint features (models to attach to).
+  public: using ModelJointPtrType = ignition::physics::ModelPtr<
+            ignition::physics::FeaturePolicy3d, JointFeatureList>;
+
+  /// \brief A map between joint entity ids in the ECM to Joint Entities in
+  /// ign-physics
+  public: std::unordered_map<Entity, JointPtrType> entityJointMap;
+
+  /// \brief A map between model entity ids in the ECM to Model Entities in
+  /// ign-physics, with attach feature.
+  /// All models on this map are also in `entityModelMap`. The difference is
+  /// that here they've been casted for `JointFeatureList`.
+  public: std::unordered_map<Entity, ModelJointPtrType> entityModelJointMap;
+
+  //////////////////////////////////////////////////
   // Detachable joints
 
   /// \brief Feature list to process `DetachableJoint` components.
   public: using DetachableJointFeatureList = ignition::physics::FeatureList<
-            MinimumFeatureList,
+            JointFeatureList,
             ignition::physics::AttachFixedJointFeature,
             ignition::physics::DetachJointFeature,
             ignition::physics::SetJointTransformFromParentFeature>;
@@ -733,6 +748,7 @@ void PhysicsPrivate::CreatePhysicsEntities(const EntityComponentManager &_ecm)
       });
 
   // joints
+  // TODO(louise) Skip the entire each call if joints aren't supported
   _ecm.EachNew<components::Joint, components::Name, components::JointType,
                components::Pose, components::ThreadPitch,
                components::ParentEntity, components::ParentLinkName,
@@ -766,6 +782,15 @@ void PhysicsPrivate::CreatePhysicsEntities(const EntityComponentManager &_ecm)
         }
         auto modelPtrPhys = this->entityModelMap.at(_parentModel->Data());
 
+        auto modelJointFeature = entityCast(modelPtrPhys, this->entityModelMap,
+            this->entityModelJointMap);
+        if (!modelJointFeature)
+        {
+          ignwarn << "Can't process Joint entity, physics engine "
+                  << "missing Joint features." << std::endl;
+          return true;
+        }
+
         sdf::Joint joint;
         joint.SetName(_name->Data());
         joint.SetType(_jointType->Data());
@@ -787,7 +812,7 @@ void PhysicsPrivate::CreatePhysicsEntities(const EntityComponentManager &_ecm)
           joint.SetAxis(1, jointAxis2->Data());
 
         // Use the parent link's parent model as the model of this joint
-        auto jointPtrPhys = modelPtrPhys->ConstructJoint(joint);
+        auto jointPtrPhys = modelJointFeature->ConstructJoint(joint);
 
         if (jointPtrPhys.Valid())
         {
