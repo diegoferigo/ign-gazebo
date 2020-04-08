@@ -394,7 +394,13 @@ this->dataPtr->model = ignition::gazebo::Model(_entity);
 this->dataPtr->modelName = this->dataPtr->model.Name(_ecm);
 ```
 
-TODO: describe the component creation pattern:
+Also in the new code we need to make sure of the existence of the specific
+*components* that we need. In our case, we're going to access the `WorldPose`
+and `WorldLinearVelocity` components of the *entity* representing one of the
+UAV model's links. The data in those components will be periodically updated by
+the physics *system* (I think). But the physics system will not necessarily
+create the components, so before accessing them later in our code, we need to
+ensure that the components exist:
 
 ```cpp
 // NEW
@@ -408,8 +414,17 @@ if(!_ecm.EntityHasComponentType(this->dataPtr->modelLink, components::WorldLinea
 }
 ```
 
-Also in the new code we clone the `const sdf::Element` that we're passed so
-that we can call non-`const` methods on it:
+We'll see this pattern elsewhere in the new code: check for a component's
+existence, create it if necessary, then proceed with using it. (Perhaps we
+could add syntactic sugar to encapsulate the check-and-create-if-necessary
+step? Or alternatively could we guarantee at startup that systems create all of
+the components they can use?  Either way it would also be helpful to document
+which *components* a given *system* will read from and write to, as they
+represent the system's API. As present it's easy for a user to create and
+interact with a component that no system actually uses.)
+
+We also clone the `const sdf::Element` that we're passed so that we can call
+non-`const` methods on it:
 
 ```cpp
 // NEW
