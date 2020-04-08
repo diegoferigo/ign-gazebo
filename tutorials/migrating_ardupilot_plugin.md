@@ -361,7 +361,8 @@ gzwarn << ... ;
 gzerr << ... ;
 ```
 
-with their Ignition equivalents
+with their Ignition equivalents (perhaps the old versions could stick around
+and be deprecated instead of removed?):
 
 ```cpp
 // NEW
@@ -423,7 +424,7 @@ param = controlSDF->Get("vel_i_gain", control.pid.GetIGain()).first;
 param = controlSDF->Get("vel_d_gain", control.pid.GetDGain()).first;
 ```
 
-In the new code, the `Get` prefix is gone (perhaps the old methods should stick
+In the new code, the `Get` prefix is gone (perhaps the old methods could stick
 around and be deprecated instead of removed?):
 
 ```cpp
