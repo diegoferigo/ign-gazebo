@@ -276,7 +276,8 @@ In the old code we store an `event::ConnectionPtr` to manage periodic calls to t
 event::ConnectionPtr updateConnection;
 ```
 
-There's no equivalent class member in the new code.
+There's no equivalent class member in the new code. Instead we declared our
+intent to have this class's update methods called via its inheritance.
 
 In the old code we store a `physics::ModelPtr` for the model we're acting on:
 
