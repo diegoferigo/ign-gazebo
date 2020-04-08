@@ -32,6 +32,8 @@ We'll take them each in turn in the following sections.
 
 ## Plugin header file (ArduPilotPlugin.hh)
 
+### Headers
+
 The old code includes these Gazebo-related headers:
 
 ```cpp
@@ -49,6 +51,8 @@ library](http://sdformat.org/) is used by both Gazebo and Ignition. But in place
 #include <ignition/gazebo/System.hh>
 #include <sdf/sdf.hh>
 ```
+
+### Class declaration
 
 In the old code, the plugin class `ArduPilotPlugin` is declared in the `gazebo` namespace:
 ```cpp
@@ -162,6 +166,8 @@ bool InitArduPilotSockets(const std::shared_ptr<const sdf::Element> &_sdf);
 
 ## Plugin source file (ArduPilotPlugin.cc)
 
+### Headers
+
 The old code includes these Gazebo-related headers:
 
 ```cpp
@@ -232,6 +238,8 @@ And we keep the SDFormat header:
 // NEW
 #include <sdf/sdf.hh>
 ```
+
+### Class members
 
 Now let's get into the class member declarations. The `PID` class has moved from `common`:
 
@@ -340,3 +348,102 @@ void imuCb(const ignition::msgs::IMU &_msg)
   imuMsgValid = true;
 }
 ```
+
+### Console logging
+
+Throughout the code, we replace the following output streams from the old code
+
+```cpp
+// OLD
+gzdbg << ... ;
+gzlog << ... ;
+gzwarn << ... ;
+gzerr << ... ;
+```
+
+with their Ignition equivalents
+
+```cpp
+// NEW
+igndbg << ... ;
+ignlog << ... ;
+ignwarn << ... ;
+ignerr << ... ;
+```
+
+### Class methods: Configure()
+
+Recall that `Configure()` replaces `Load()`.
+
+In the old code, we store the model pointer and name:
+
+```cpp
+// OLD
+this->dataPtr->model = _model;
+this->dataPtr->modelName = this->dataPtr->model->GetName();
+```
+
+In the new code, we store the entity, model, and name a bit differently:
+
+```cpp
+// NEW
+this->dataPtr->entity = _entity;
+this->dataPtr->model = ignition::gazebo::Model(_entity);
+this->dataPtr->modelName = this->dataPtr->model.Name(_ecm);
+```
+
+Also in the new code we clone the `const sdf::Element` that we're passed so
+that we can call non-`const` methods on it:
+
+```cpp
+// NEW
+auto sdfClone = _sdf->Clone();
+```
+
+In the old code we retrieve a pointer to each joint that we're controlling:
+
+```cpp
+// OLD
+control.joint = _model->GetJoint(control.jointName);
+```
+
+In the new code we retrieve the entity that represents the joint:
+
+```cpp
+// NEW
+control.joint = this->dataPtr->model.JointByName(_ecm, control.jointName);
+```
+
+The accessor methods for members in the `PID` class have changed. The old code uses a `Get` prefix, e.g.:
+
+```cpp
+// OLD
+param = controlSDF->Get("vel_p_gain", control.pid.GetPGain()).first;
+param = controlSDF->Get("vel_i_gain", control.pid.GetIGain()).first;
+param = controlSDF->Get("vel_d_gain", control.pid.GetDGain()).first;
+```
+
+In the new code, the `Get` prefix is gone (perhaps the old methods should stick
+around and be deprecated instead of removed?):
+
+```cpp
+// NEW
+param = controlSDF->Get("vel_p_gain", control.pid.PGain()).first;
+param = controlSDF->Get("vel_i_gain", control.pid.IGain()).first;
+param = controlSDF->Get("vel_d_gain", control.pid.DGain()).first;
+```
+
+The old code does a bunch of lookups to get a pointer to the IMU sensor. In the
+new code, we just store the name of the sensors from the user-supplied SDF
+configuration:
+
+```cpp
+// NEW
+this->dataPtr->imuName = _sdf->Get("imuName", static_cast<std::string>("imu_sensor")).first;
+```
+
+and we do the equivalent lookup later, in `PreUpdate()`, which we'll cover next.
+
+### Class methods: PreUpdate()
+
+
