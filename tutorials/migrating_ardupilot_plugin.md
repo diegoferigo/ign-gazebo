@@ -394,6 +394,20 @@ this->dataPtr->model = ignition::gazebo::Model(_entity);
 this->dataPtr->modelName = this->dataPtr->model.Name(_ecm);
 ```
 
+TODO: describe the component creation pattern:
+
+```cpp
+// NEW
+if(!_ecm.EntityHasComponentType(this->dataPtr->modelLink, components::WorldPose::typeId))
+{
+  _ecm.CreateComponent(this->dataPtr->modelLink, ignition::gazebo::components::WorldPose());
+}
+if(!_ecm.EntityHasComponentType(this->dataPtr->modelLink, components::WorldLinearVelocity::typeId))
+{
+  _ecm.CreateComponent(this->dataPtr->modelLink, ignition::gazebo::components::WorldLinearVelocity());
+}
+```
+
 Also in the new code we clone the `const sdf::Element` that we're passed so
 that we can call non-`const` methods on it:
 
@@ -446,6 +460,129 @@ this->dataPtr->imuName = _sdf->Get("imuName", static_cast<std::string>("imu_sens
 
 and we do the equivalent lookup later, in `PreUpdate()`, which we'll cover next.
 
-### Class methods: PreUpdate()
+### Class methods: OnUpdate() -> PreUpdate() + PostUpdate()
+
+The old code does the following each time step in its `OnUpdate()` method:
+
+```cpp
+// OLD
+const gazebo::common::Time curTime =
+  this->dataPtr->model->GetWorld()->SimTime();
+  
+if (curTime > this->dataPtr->lastControllerUpdateTime)
+{
+  this->ReceiveMotorCommand();
+  if (this->dataPtr->arduPilotOnline)
+  {
+    this->ApplyMotorForces((curTime -
+      this->dataPtr->lastControllerUpdateTime).Double());
+    this->SendState();
+  }
+}
+
+this->dataPtr->lastControllerUpdateTime = curTime;
+```
+
+As mentioned above, in the new code we're splitting that work into two halves:
+the "write" part should happen in `PreUpdate()` and the "read" part should
+happen in `PostUpdate()`.
+
+In `PreUpdate()` we receive new commands from the external ArduPilot process
+and write the resulting forces to propeller joints in simulation:
+
+```cpp
+// NEW
+if (_info.simTime > this->dataPtr->lastControllerUpdateTime)
+{
+  this->ReceiveMotorCommand();
+  if (this->dataPtr->arduPilotOnline)
+  {
+    this->ApplyMotorForces(std::chrono::duration_cast<std::chrono::duration<double> >(_info.simTime -
+      this->dataPtr->lastControllerUpdateTime).count(), _ecm);
+  }
+```
+
+Then in `PostUpdate()` we read the latest state (e.g., IMU sensor data, UAV
+pose and velocity) from simulation and send it out to ArduPilot:
+
+```cpp
+// NEW
+if (_info.simTime > this->dataPtr->lastControllerUpdateTime)
+{
+  if (this->dataPtr->arduPilotOnline)
+  {
+    this->SendState(std::chrono::duration_cast<std::chrono::duration<double> >(_info.simTime).count(),
+            _ecm);
+  }
+}
+
+this->dataPtr->lastControllerUpdateTime = _info.simTime;
+```
+
+Note the differences in both methods with regard to time-handling: (i) the
+current simulation time is passed in as part of an
+`ignition::gazebo::UpdateInfo` object; and (ii) we operate on time values using
+`std::chrono`.
+
+#### One-time initialization in PreUpdate(): subscribing to sensor data
+
+Though it's not part of the regular update loop, we subscribe to the IMU sensor
+data in `PreUpdate()` because the information that we need for that
+subscription isn't available when we're in `Configure()` (perhaps it should
+be?).
+
+That one-time subscription logic looks like this, starting with determination
+of the right topic name and ending with registering our previously defined
+`imuCb()` method as the callback to receive new IMU data:
+
+```cpp
+// NEW
+if(!this->dataPtr->imuInitialized)
+{
+  // Set unconditionally because we're only going to try this once.
+  this->dataPtr->imuInitialized = true;
+  std::string imuTopicName;
+  _ecm.Each<ignition::gazebo::components::Imu, ignition::gazebo::components::Name>(
+          [&](const ignition::gazebo::Entity &_imu_entity,
+              const ignition::gazebo::components::Imu * /*_imu*/,
+              const ignition::gazebo::components::Name *_name)->bool
+      {
+        if(_name->Data() == this->dataPtr->imuName)
+        {
+          // The parent of the imu is imu_link
+          ignition::gazebo::Entity parent = _ecm.ParentEntity(_imu_entity);
+          this->dataPtr->modelLink = parent;
+          if(parent != ignition::gazebo::kNullEntity)
+          {
+            // The grandparent of the imu is the quad itself, which is where this plugin is attached
+            ignition::gazebo::Entity gparent = _ecm.ParentEntity(parent);
+            if(gparent != ignition::gazebo::kNullEntity)
+            { 
+              ignition::gazebo::Model gparent_model(gparent);
+              if(gparent_model.Name(_ecm) == this->dataPtr->modelName)
+              {
+                imuTopicName = ignition::gazebo::scopedName(_imu_entity, _ecm) + "/imu";
+                igndbg << "Computed IMU topic to be: " << imuTopicName << std::endl;
+              }
+            }
+          }
+        }
+        return true;
+      });
+
+  if(imuTopicName.empty())
+  {
+    ignerr << "[" << this->dataPtr->modelName << "] "
+          << "imu_sensor [" << this->dataPtr->imuName 
+          << "] not found, abort ArduPilot plugin." << "\n";
+    return;
+  }
+
+  this->dataPtr->node.Subscribe(imuTopicName, &ignition::gazebo::systems::ArduPilotPluginPrivate::imuCb, this->dataPtr.get());
+}
+```
+
+There should be an easier way to compute the name of the topic on which a given
+sensor's data will be published, but the method shown above works.
 
 
