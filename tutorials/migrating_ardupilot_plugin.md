@@ -1,3 +1,5 @@
+[TOC]
+
 # Case study: migrating the ArduPilot ModelPlugin from Classic Gazebo to Ignition Gazebo
 
 A variety of changes are required when migrating a plugin from Gazebo Classic
@@ -362,8 +364,7 @@ gzwarn << ... ;
 gzerr << ... ;
 ```
 
-with their Ignition equivalents (perhaps the old versions could stick around
-and be deprecated instead of removed?):
+with their Ignition equivalents:
 
 ```cpp
 // NEW
@@ -372,6 +373,9 @@ ignlog << ... ;
 ignwarn << ... ;
 ignerr << ... ;
 ```
+
+**Suggestion**: Perhaps the old versions could stick around and be deprecated
+instead of removed?
 
 ### Class methods: Configure()
 
@@ -415,13 +419,14 @@ if(!_ecm.EntityHasComponentType(this->dataPtr->modelLink, components::WorldLinea
 ```
 
 We'll see this pattern elsewhere in the new code: check for a component's
-existence, create it if necessary, then proceed with using it. (Perhaps we
-could add syntactic sugar to encapsulate the check-and-create-if-necessary
-step? Or alternatively could we guarantee at startup that systems create all of
-the components they can use?  Either way it would also be helpful to document
-which *components* a given *system* will read from and write to, as they
-represent the system's API. As present it's easy for a user to create and
-interact with a component that no system actually uses.)
+existence, create it if necessary, then proceed with using it.
+
+**Suggestion**: Perhaps we could add syntactic sugar to encapsulate the
+check-and-create-if-necessary step? Or alternatively could we guarantee at
+startup that systems create all of the components they can use?  Either way it
+would also be helpful to document which *components* a given *system* will read
+from and write to, as they represent the system's API. As present it's easy for
+a user to create and interact with a component that no system actually uses.
 
 We also clone the `const sdf::Element` that we're passed so that we can call
 non-`const` methods on it:
@@ -454,15 +459,18 @@ param = controlSDF->Get("vel_i_gain", control.pid.GetIGain()).first;
 param = controlSDF->Get("vel_d_gain", control.pid.GetDGain()).first;
 ```
 
-In the new code, the `Get` prefix is gone (perhaps the old methods could stick
-around and be deprecated instead of removed?):
-
+In the new code, the `Get` prefix is gone:
+ 
 ```cpp
 // NEW
 param = controlSDF->Get("vel_p_gain", control.pid.PGain()).first;
 param = controlSDF->Get("vel_i_gain", control.pid.IGain()).first;
 param = controlSDF->Get("vel_d_gain", control.pid.DGain()).first;
 ```
+
+**Suggestion**: Perhaps the old methods could stick around and be deprecated
+instead of removed?
+
 
 The old code does a bunch of lookups to get a pointer to the IMU sensor. In the
 new code, we just store the name of the sensors from the user-supplied SDF
@@ -543,8 +551,10 @@ current simulation time is passed in as part of an
 
 Though it's not part of the regular update loop, we subscribe to the IMU sensor
 data in `PreUpdate()` because the information that we need for that
-subscription isn't available when we're in `Configure()` (perhaps it should
-be?).
+subscription isn't available when we're in `Configure()`.
+
+**Suggestion**: Perhaps it should be possible to compute topics names for
+subscription inside `Configure()`?
 
 That one-time subscription logic looks like this, starting with determination
 of the right topic name and ending with registering our previously defined
@@ -597,7 +607,7 @@ if(!this->dataPtr->imuInitialized)
 }
 ```
 
-There should be an easier way to compute the name of the topic on which a given
-sensor's data will be published, but the method shown above works.
+**Suggestion**: There should be an easier way to compute the name of the topic
+on which a given sensor's data will be published.
 
 
