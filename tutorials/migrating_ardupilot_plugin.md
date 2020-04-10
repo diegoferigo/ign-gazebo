@@ -218,7 +218,7 @@ We need a few things from `ign-math`:
 #include <ignition/math/PID.hh>
 #include <ignition/math/Vector3.hh>
 ```
- 
+
 To use the `IGNITION_ADD_PLUGIN()` and `IGNITION_ADD_PLUGIN_ALIAS()` macros, we
 need a header from `ign-plugin`:
 
@@ -377,7 +377,7 @@ ignerr << ... ;
 **Suggestion**: Perhaps the old versions could stick around and be deprecated
 instead of removed?
 
-### Class methods: Configure()
+### Plugin interface: Configure()
 
 Recall that `Configure()` replaces `Load()`.
 
@@ -433,7 +433,7 @@ non-`const` methods on it:
 
 ```cpp
 // NEW
-auto sdfClone = _sdf->Clone();
+sdf::ElementPtr sdfClone = _sdf->Clone();
 ```
 
 In the old code we retrieve a pointer to each joint that we're controlling:
@@ -460,7 +460,7 @@ param = controlSDF->Get("vel_d_gain", control.pid.GetDGain()).first;
 ```
 
 In the new code, the `Get` prefix is gone:
- 
+
 ```cpp
 // NEW
 param = controlSDF->Get("vel_p_gain", control.pid.PGain()).first;
@@ -483,7 +483,7 @@ this->dataPtr->imuName = _sdf->Get("imuName", static_cast<std::string>("imu_sens
 
 and we do the equivalent lookup later, in `PreUpdate()`, which we'll cover next.
 
-### Class methods: OnUpdate() -> PreUpdate() + PostUpdate()
+### Plugin interface: OnUpdate() -> PreUpdate() + PostUpdate()
 
 The old code does the following each time step in its `OnUpdate()` method:
 
@@ -491,7 +491,7 @@ The old code does the following each time step in its `OnUpdate()` method:
 // OLD
 const gazebo::common::Time curTime =
   this->dataPtr->model->GetWorld()->SimTime();
-  
+
 if (curTime > this->dataPtr->lastControllerUpdateTime)
 {
   this->ReceiveMotorCommand();
@@ -582,7 +582,7 @@ if(!this->dataPtr->imuInitialized)
             // The grandparent of the imu is the quad itself, which is where this plugin is attached
             ignition::gazebo::Entity gparent = _ecm.ParentEntity(parent);
             if(gparent != ignition::gazebo::kNullEntity)
-            { 
+            {
               ignition::gazebo::Model gparent_model(gparent);
               if(gparent_model.Name(_ecm) == this->dataPtr->modelName)
               {
@@ -598,7 +598,7 @@ if(!this->dataPtr->imuInitialized)
   if(imuTopicName.empty())
   {
     ignerr << "[" << this->dataPtr->modelName << "] "
-          << "imu_sensor [" << this->dataPtr->imuName 
+          << "imu_sensor [" << this->dataPtr->imuName
           << "] not found, abort ArduPilot plugin." << "\n";
     return;
   }
@@ -610,4 +610,286 @@ if(!this->dataPtr->imuInitialized)
 **Suggestion**: There should be an easier way to compute the name of the topic
 on which a given sensor's data will be published.
 
+### Writing to simulation
+
+Based on commands received from ArduPilot, new forces are applied to the
+propeller joints in `ApplyMotorForces()`, using the joints' current velocities
+as feedback. In the old code that's done by calling `GetVelocity()` and
+`SetForce()` on each joint `i`:
+
+```cpp
+// OLD
+const double vel = this->dataPtr->controls[i].joint->GetVelocity(0);
+// ...do some feedback control math to compute force from vel...
+this->dataPtr->controls[i].joint->SetForce(0, force);
+```
+
+In the new code, for each joint `i` we read from the `JointVelocity` component
+attached to the corresponding entity, and we write to the `JointForceCmd`
+component attached the same entity (creating it first in case it doesn't yet
+exist):
+
+```cpp
+// NEW
+ignition::gazebo::components::JointForceCmd* jfc_comp =
+  _ecm.Component<ignition::gazebo::components::JointForceCmd>(this->dataPtr->controls[i].joint);
+if (jfc_comp == nullptr)
+{
+  jfc_comp = _ecm.Component<ignition::gazebo::components::JointForceCmd>(
+    _ecm.CreateComponent(this->dataPtr->controls[i].joint,
+    ignition::gazebo::components::JointForceCmd({0})));
+}
+ignition::gazebo::components::JointVelocity* v_comp =
+  _ecm.Component<ignition::gazebo::components::JointVelocity>(this->dataPtr->controls[i].joint);
+const double vel = v_comp->Data()[0];
+// ...do some feedback control math to compute force from vel...
+jfc_comp->Data()[0] = force;
+```
+
+A similar pattern is used for the case of setting a velocity on a joint;
+instead of calling `SetVelocity()` on the joint, we write to the
+`JointVelocityCmd` component of the joint entity.
+
+### Reading from simulation
+
+To prepare the data that will be sent to ArduPilot, in `SendState()` we need to
+read some information from simulation, specifically: linear acceleration and
+angular velocity from the IMU, and the UAV's pose and linear velocity in the
+world frame.
+
+In the old code, we get the IMU data by calling methods on the sensor object
+and copying the result into the packet that we're going to send to ArduPilot:
+
+```cpp
+// OLD
+const ignition::math::Vector3d linearAccel =
+  this->dataPtr->imuSensor->LinearAcceleration();
+pkt.imuLinearAccelerationXYZ[0] = linearAccel.X();
+pkt.imuLinearAccelerationXYZ[1] = linearAccel.Y();
+pkt.imuLinearAccelerationXYZ[2] = linearAccel.Z();
+
+const ignition::math::Vector3d angularVel =
+  this->dataPtr->imuSensor->AngularVelocity();
+pkt.imuAngularVelocityRPY[0] = angularVel.X();
+pkt.imuAngularVelocityRPY[1] = angularVel.Y();
+pkt.imuAngularVelocityRPY[2] = angularVel.Z();
+```
+
+In the new code, as previously mentioned, these data are accessed by
+subscribing to the sensor via ign-transport. In that subscription we registered
+a callback that just copies the latest IMU message to `imuMsg` and sets the
+flag `imuMsgValid`, using `imuMsgMutex` to exclude concurrent access to those
+variables. So we access the latest IMU sensor by copying and reading from that
+message:
+
+```cpp
+// NEW
+ignition::msgs::IMU imuMsg;
+{
+  std::lock_guard<std::mutex> lock(this->dataPtr->imuMsgMutex);
+  if(!this->dataPtr->imuMsgValid)
+  {
+    return;
+  }
+  imuMsg = this->dataPtr->imuMsg;
+}
+
+pkt.imuLinearAccelerationXYZ[0] = imuMsg.linear_acceleration().x();
+pkt.imuLinearAccelerationXYZ[1] = imuMsg.linear_acceleration().y();
+pkt.imuLinearAccelerationXYZ[2] = imuMsg.linear_acceleration().z();
+
+pkt.imuAngularVelocityRPY[0] = imuMsg.angular_velocity().x();
+pkt.imuAngularVelocityRPY[1] = imuMsg.angular_velocity().y();
+pkt.imuAngularVelocityRPY[2] = imuMsg.angular_velocity().z();
+```
+
+In the old code, we access the UAV's pose linear velocity in the world frame by
+calling `WorldPose()` and `WorldLinearVelocity()`, respectively, on the model
+object:
+
+```cpp
+// OLD
+const ignition::math::Pose3d gazeboXYZToModelXForwardZDown =
+  this->modelXYZToAirplaneXForwardZDown +
+  this->dataPtr->model->WorldPose();
+
+const ignition::math::Vector3d velGazeboWorldFrame =
+  this->dataPtr->model->GetLink()->WorldLinearVel();
+```
+
+In the new code we instead read from the `WorldPose` and `WorldLinearVelocity`
+components attached to the entity representing one of the UAV model's links:
+
+```cpp
+// NEW
+const ignition::gazebo::components::WorldPose* p_comp =
+    _ecm.Component<ignition::gazebo::components::WorldPose>(this->dataPtr->modelLink);
+const ignition::math::Pose3d gazeboXYZToModelXForwardZDown =
+  this->modelXYZToAirplaneXForwardZDown +
+  p_comp->Data();
+
+const ignition::gazebo::components::WorldLinearVelocity* v_comp =
+  _ecm.Component<ignition::gazebo::components::WorldLinearVelocity>(this->dataPtr->modelLink);
+const ignition::math::Vector3d velGazeboWorldFrame = v_comp->Data();
+```
+
+### Registering the plugin
+
+In the old code we register our plugin via the macro `GZ_REGISTER_PLUGIN()`:
+
+```cpp
+// OLD
+GZ_REGISTER_MODEL_PLUGIN(ArduPilotPlugin)
+```
+
+In the new code we instead use two macros: `IGNITION_ADD_PLUGIN()` and `IGNITION_ADD_PLUGIN_ALIAS()`:
+
+```cpp
+// NEW
+IGNITION_ADD_PLUGIN(ignition::gazebo::systems::ArduPilotPlugin,
+                    ignition::gazebo::System,
+                    ignition::gazebo::systems::ArduPilotPlugin::ISystemConfigure,
+                    ignition::gazebo::systems::ArduPilotPlugin::ISystemPostUpdate,
+                    ignition::gazebo::systems::ArduPilotPlugin::ISystemPreUpdate)
+IGNITION_ADD_PLUGIN_ALIAS(ignition::gazebo::systems::ArduPilotPlugin,"ArduPilotPlugin")
+```
+
+## Build recipe: `CMakeLists.txt`
+
+Compared to the code changes, the updates in the CMake configuration are pretty
+minor and primarily result from the fact that the formerly monolithic Gazebo
+project is now set of Ignition libraries.
+
+In the old code we retrieve all the required build configuration by finding the Gazebo package:
+
+```
+# OLD
+find_package(gazebo REQUIRED)
+```
+
+In the new code we explicitly reference each Ignition package that we use:
+
+```
+# NEW
+find_package(sdformat9 REQUIRED)
+find_package(ignition-common3-all REQUIRED)
+find_package(ignition-gazebo3-all REQUIRED)
+find_package(ignition-math6-all REQUIRED)
+find_package(ignition-msgs5-all REQUIRED)
+find_package(ignition-physics2-all REQUIRED)
+find_package(ignition-sensors3-all REQUIRED)
+find_package(ignition-transport8-all REQUIRED)
+```
+
+In the old code we need only refer to the build configuration retrieved from the Gazebo package:
+
+```
+include_directories(
+        ${PROJECT_SOURCE_DIR}
+        include
+        ${GAZEBO_INCLUDE_DIRS})
+
+link_libraries(
+        ${GAZEBO_LIBRARIES}
+)
+```
+
+Whereas in the new code we refer to build configuration from each Ignition package:
+
+```
+include_directories(
+        ${PROJECT_SOURCE_DIR}
+        include
+        ${SDFORMAT-INCLUDE_DIRS}
+        ${IGNITION-COMMON_INCLUDE_DIRS}
+        ${IGNITION-GAZEBO_INCLUDE_DIRS}
+        ${IGNITION-MATH_INCLUDE_DIRS}
+        ${IGNITION-MSGS_INCLUDE_DIRS}
+        ${IGNITION-PHYSICS_INCLUDE_DIRS}
+        ${IGNITION-SENSORS_INCLUDE_DIRS}
+        ${IGNITION-TRANSPORT_INCLUDE_DIRS}
+        )
+
+link_libraries(
+        ${SDFORMAT-LIBRARIES}
+        ${IGNITION-COMMON_LIBRARIES}
+        ${IGNITION-GAZEBO_LIBRARIES}
+        ${IGNITION-MATH_LIBRARIES}
+        ${IGNITION-MSGS_LIBRARIES}
+        ${IGNITION-PHYSICS_LIBRARIES}
+        ${IGNITION-SENSORS_LIBRARIES}
+        ${IGNITION-TRANSPORT_LIBRARIES}
+        )
+```
+
+## The model
+
+The old UAV is defined in two parts: (i) the `iris_with_standoffs` model, which
+defines the vehicle structure; and (ii) the `iris_with_ardupilot` model, which
+includes the extends the `iris_with_standoffs` model by adding plugins need to
+fly it.
+
+Because model inclusion is not (yet?) supported, the new model just combines
+the additional plugin configuration from `iris_with_ardupilot` into
+`iris_with_standoffs`. Along the way a few changes are made, as follows.
+
+The `<script>` tag for visual material is not (yet?) supported, so in the
+model, instances of `<script>` are just commented out (which leaves the UAV
+visually untextured, but functional).
+
+In the old model, loading an instance of the LiftDrag plugin for each half of
+each propeller looks like this:
+
+```xml
+<!-- OLD -->
+<plugin
+    name="rotor_0_blade_1"
+    filename="libLiftDragPlugin.so">
+  <!-- ...configuration goes here... -->
+  <link_name>iris::rotor_0</link_name>
+</plugin>
+```
+
+In the new model, we do this instead:
+
+```xml
+<!-- NEW -->
+<plugin
+    name="ignition::gazebo::systems::LiftDrag"
+    filename="libignition-gazebo3-lift-drag-system.so">
+  <!-- ...configuration goes here... -->
+  <link_name>rotor_0</link_name>
+</plugin>
+```
+
+In the old model, it's possible to read joint state and apply joint forces
+automatically. In the new model, we must instantiate the `JointStatePublisher`
+plugin once for the entire model and the `ApplyJointForce` plugin once for each propeller joint:
+
+```xml
+<!-- NEW -->
+<plugin
+  filename="libignition-gazebo-joint-state-publisher-system.so"
+  name="ignition::gazebo::systems::JointStatePublisher"></plugin>
+<plugin
+  filename="libignition-gazebo-apply-joint-force-system.so"
+  name="ignition::gazebo::systems::ApplyJointForce">
+  <joint_name>rotor_0_joint</joint_name>
+</plugin>
+<plugin
+  filename="libignition-gazebo-apply-joint-force-system.so"
+  name="ignition::gazebo::systems::ApplyJointForce">
+  <joint_name>rotor_1_joint</joint_name>
+</plugin>
+<plugin
+  filename="libignition-gazebo-apply-joint-force-system.so"
+  name="ignition::gazebo::systems::ApplyJointForce">
+  <joint_name>rotor_2_joint</joint_name>
+</plugin>
+<plugin
+  filename="libignition-gazebo-apply-joint-force-system.so"
+  name="ignition::gazebo::systems::ApplyJointForce">
+  <joint_name>rotor_3_joint</joint_name>
+</plugin>
+```
 
