@@ -631,19 +631,19 @@ exist):
 
 ```cpp
 // NEW
-ignition::gazebo::components::JointForceCmd* jfc_comp =
+ignition::gazebo::components::JointForceCmd* jfcComp =
   _ecm.Component<ignition::gazebo::components::JointForceCmd>(this->dataPtr->controls[i].joint);
-if (jfc_comp == nullptr)
+if (jfcComp == nullptr)
 {
-  jfc_comp = _ecm.Component<ignition::gazebo::components::JointForceCmd>(
+  jfcComp = _ecm.Component<ignition::gazebo::components::JointForceCmd>(
     _ecm.CreateComponent(this->dataPtr->controls[i].joint,
     ignition::gazebo::components::JointForceCmd({0})));
 }
-ignition::gazebo::components::JointVelocity* v_comp =
+ignition::gazebo::components::JointVelocity* vComp =
   _ecm.Component<ignition::gazebo::components::JointVelocity>(this->dataPtr->controls[i].joint);
-const double vel = v_comp->Data()[0];
+const double vel = vComp->Data()[0];
 // ...do some feedback control math to compute force from vel...
-jfc_comp->Data()[0] = force;
+jfcComp->Data()[0] = force;
 ```
 
 A similar pattern is used for the case of setting a velocity on a joint;
@@ -722,15 +722,15 @@ components attached to the entity representing one of the UAV model's links:
 
 ```cpp
 // NEW
-const ignition::gazebo::components::WorldPose* p_comp =
+const ignition::gazebo::components::WorldPose* pComp =
     _ecm.Component<ignition::gazebo::components::WorldPose>(this->dataPtr->modelLink);
 const ignition::math::Pose3d gazeboXYZToModelXForwardZDown =
   this->modelXYZToAirplaneXForwardZDown +
-  p_comp->Data();
+  pComp->Data();
 
-const ignition::gazebo::components::WorldLinearVelocity* v_comp =
+const ignition::gazebo::components::WorldLinearVelocity* vComp =
   _ecm.Component<ignition::gazebo::components::WorldLinearVelocity>(this->dataPtr->modelLink);
-const ignition::math::Vector3d velGazeboWorldFrame = v_comp->Data();
+const ignition::math::Vector3d velGazeboWorldFrame = vComp->Data();
 ```
 
 ### Registering the plugin
