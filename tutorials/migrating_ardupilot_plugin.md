@@ -1,3 +1,5 @@
+\page ardupilot
+
 [TOC]
 
 # Case study: migrating the ArduPilot ModelPlugin from Classic Gazebo to Ignition Gazebo
