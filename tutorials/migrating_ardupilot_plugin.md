@@ -85,7 +85,7 @@ class GAZEBO_VISIBLE ArduPilotPlugin : public ModelPlugin
 In the new code, we use multiple inheritance to declare that our plugin will
 act as a *system* (in the entity-component-system, or ECS, pattern used by
 Ignition), and further which interfaces of a system it will use (we also update
-the symbol visibility macro:
+the symbol visibility macro):
 
 ```cpp
 // NEW
@@ -354,7 +354,7 @@ void imuCb(const ignition::msgs::IMU &_msg)
 
 ### Console logging
 
-Throughout the code, we replace the following output streams from the old code
+Throughout the code, we replace the following output streams from the old code:
 
 ```cpp
 // OLD
@@ -428,7 +428,7 @@ would also be helpful to document which *components* a given *system* will read
 from and write to, as they represent the system's API. As present it's easy for
 a user to create and interact with a component that no system actually uses.
 
-We also clone the `const sdf::Element` that we're passed so that we can call
+We also clone the `const sdf::Element` that we've passed so that we can call
 non-`const` methods on it:
 
 ```cpp
@@ -626,7 +626,7 @@ this->dataPtr->controls[i].joint->SetForce(0, force);
 
 In the new code, for each joint `i` we read from the `JointVelocity` component
 attached to the corresponding entity, and we write to the `JointForceCmd`
-component attached the same entity (creating it first in case it doesn't yet
+component attached to the same entity (creating it first in case it doesn't yet
 exist):
 
 ```cpp
@@ -758,7 +758,7 @@ IGNITION_ADD_PLUGIN_ALIAS(ignition::gazebo::systems::ArduPilotPlugin,"ArduPilotP
 
 Compared to the code changes, the updates in the CMake configuration are pretty
 minor and primarily result from the fact that the formerly monolithic Gazebo
-project is now set of Ignition libraries.
+project is now a set of Ignition libraries.
 
 In the old code we retrieve all the required build configuration by finding the Gazebo package:
 
@@ -826,7 +826,7 @@ link_libraries(
 
 The old UAV is defined in two parts: (i) the `iris_with_standoffs` model, which
 defines the vehicle structure; and (ii) the `iris_with_ardupilot` model, which
-includes the extends the `iris_with_standoffs` model by adding plugins need to
+includes the extends the `iris_with_standoffs` model by adding plugins needed to
 fly it.
 
 Because model inclusion is not (yet?) supported, the new model just combines
