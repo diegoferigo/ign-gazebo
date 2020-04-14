@@ -19,6 +19,7 @@
 
 #include <memory>
 #include <unordered_map>
+#include <utility>
 #include <ignition/physics/RequestFeatures.hh>
 
 #include <ignition/gazebo/config.hh>
@@ -83,7 +84,8 @@ namespace systems
       typename MinimumFeatureList,
       template <typename, typename> class ToEntity,
       template <typename, typename> class MinimumEntity>
-  physics::EntityPtr<ToEntity<PolicyT, ToFeatureList>> entityCast(Entity _entity,
+  physics::EntityPtr<ToEntity<PolicyT, ToFeatureList>> entityCast(
+      Entity _entity,
       std::unordered_map<Entity, physics::EntityPtr<
         MinimumEntity<PolicyT, MinimumFeatureList>>> &_minimumMap,
       std::unordered_map<Entity, physics::EntityPtr<

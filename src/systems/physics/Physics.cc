@@ -275,19 +275,19 @@ class ignition::gazebo::systems::PhysicsPrivate
   // Detachable joints
 
   /// \brief Feature list to process `DetachableJoint` components.
-  public: using DetachableJointFeatureList = ignition::physics::FeatureList<
+  public: using DetachableJointFeatureList = physics::FeatureList<
             MinimumFeatureList,
-            ignition::physics::AttachFixedJointFeature,
-            ignition::physics::DetachJointFeature,
-            ignition::physics::SetJointTransformFromParentFeature>;
+            physics::AttachFixedJointFeature,
+            physics::DetachJointFeature,
+            physics::SetJointTransformFromParentFeature>;
 
   /// \brief Joint type with detachable joint features.
-  public: using JointDetachableJointPtrType = ignition::physics::JointPtr<
-            ignition::physics::FeaturePolicy3d, DetachableJointFeatureList>;
+  public: using JointDetachableJointPtrType = physics::JointPtr<
+            physics::FeaturePolicy3d, DetachableJointFeatureList>;
 
   /// \brief Link type with detachable joint features (links to attach to).
-  public: using LinkDetachableJointPtrType = ignition::physics::LinkPtr<
-            ignition::physics::FeaturePolicy3d, DetachableJointFeatureList>;
+  public: using LinkDetachableJointPtrType = physics::LinkPtr<
+            physics::FeaturePolicy3d, DetachableJointFeatureList>;
 
   /// \brief A map between joint entity ids in the ECM to Joint Entities in
   /// ign-physics, with detach feature.
@@ -307,12 +307,12 @@ class ignition::gazebo::systems::PhysicsPrivate
   // Bounding box
 
   /// \brief Feature list for model bounding box.
-  public: using BoundingBoxFeatureList = ignition::physics::FeatureList<
-            ignition::physics::GetModelBoundingBox>;
+  public: using BoundingBoxFeatureList = physics::FeatureList<
+            physics::GetModelBoundingBox>;
 
   /// \brief Model type with bounding box feature.
-  public: using ModelBoundingBoxPtrType = ignition::physics::ModelPtr<
-            ignition::physics::FeaturePolicy3d, BoundingBoxFeatureList>;
+  public: using ModelBoundingBoxPtrType = physics::ModelPtr<
+            physics::FeaturePolicy3d, BoundingBoxFeatureList>;
 
   /// \brief A map between model entity ids in the ECM to Model Entities in
   /// ign-physics, with bounding box feature.
@@ -325,12 +325,12 @@ class ignition::gazebo::systems::PhysicsPrivate
   // Joint velocity command
 
   /// \brief Feature list for set joint velocity command.
-  public: using JointVelocityCommandFeatureList = ignition::physics::FeatureList<
-            ignition::physics::SetJointVelocityCommandFeature>;
+  public: using JointVelocityCommandFeatureList = physics::FeatureList<
+            physics::SetJointVelocityCommandFeature>;
 
   /// \brief Joint type with set joint velocity command.
-  public: using JointVelocityCommandPtrType = ignition::physics::JointPtr<
-            ignition::physics::FeaturePolicy3d, JointVelocityCommandFeatureList>;
+  public: using JointVelocityCommandPtrType = physics::JointPtr<
+            physics::FeaturePolicy3d, JointVelocityCommandFeatureList>;
 
   /// \brief A map between joint entity ids in the ECM to Joint Entities in
   /// ign-physics, with velocity command feature.
@@ -345,13 +345,13 @@ class ignition::gazebo::systems::PhysicsPrivate
   /// \brief Feature list for meshes.
   /// Include MinimumFeatureList so created collision can be automatically
   /// up-cast.
-  public: using MeshFeatureList = ignition::physics::FeatureList<
+  public: using MeshFeatureList = physics::FeatureList<
             MinimumFeatureList,
-            ignition::physics::mesh::AttachMeshShapeFeature>;
+            physics::mesh::AttachMeshShapeFeature>;
 
   /// \brief Link type with meshes.
-  public: using LinkMeshPtrType = ignition::physics::LinkPtr<
-            ignition::physics::FeaturePolicy3d, MeshFeatureList>;
+  public: using LinkMeshPtrType = physics::LinkPtr<
+            physics::FeaturePolicy3d, MeshFeatureList>;
 
   /// \brief A map between link entity ids in the ECM to Link Entities in
   /// ign-physics, with mesh feature.
@@ -696,8 +696,8 @@ void PhysicsPrivate::CreatePhysicsEntities(const EntityComponentManager &_ecm)
             return true;
           }
 
-          auto linkMeshFeature = entityCast(_parent->Data(), this->entityLinkMap,
-              this->entityLinkMeshMap);
+          auto linkMeshFeature = entityCast(_parent->Data(),
+              this->entityLinkMap, this->entityLinkMeshMap);
           if (!linkMeshFeature)
           {
             ignwarn << "Can't process Mesh geometry, physics engine "
@@ -705,9 +705,10 @@ void PhysicsPrivate::CreatePhysicsEntities(const EntityComponentManager &_ecm)
             return true;
           }
 
-          collisionPtrPhys = linkMeshFeature->AttachMeshShape(_name->Data(), *mesh,
-              ignition::math::eigen3::convert(_pose->Data()),
-              ignition::math::eigen3::convert(meshSdf->Scale()));
+          collisionPtrPhys = linkMeshFeature->AttachMeshShape(_name->Data(),
+              *mesh,
+              math::eigen3::convert(_pose->Data()),
+              math::eigen3::convert(meshSdf->Scale()));
         }
         else
         {
