@@ -86,7 +86,7 @@ namespace systems
       template <typename, typename> class MinimumEntity>
   physics::EntityPtr<ToEntity<PolicyT, ToFeatureList>> entityCast(
       Entity _entity,
-      std::unordered_map<Entity, physics::EntityPtr<
+      const std::unordered_map<Entity, physics::EntityPtr<
         MinimumEntity<PolicyT, MinimumFeatureList>>> &_minimumMap,
       std::unordered_map<Entity, physics::EntityPtr<
         ToEntity<PolicyT, ToFeatureList>>> &_castMap)
